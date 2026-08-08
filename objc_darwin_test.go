@@ -101,6 +101,44 @@ func TestOnDevice_App(t *testing.T) {
 	t.Log("on-device: App() resolved the shared NSApplication")
 }
 
+func TestOnDevice_RegisterClassWithProtocols(t *testing.T) {
+	// The regression this guards: WKWebView's -setURLSchemeHandler:forURLScheme:
+	// checks conformsToProtocol:(WKURLSchemeHandler), so a scheme-handler class
+	// must formally declare the protocol, not merely implement its methods.
+	if err := Load(WebKit); err != nil {
+		t.Skipf("WebKit unavailable: %v", err)
+	}
+	proto := GetProtocol("WKURLSchemeHandler")
+	if proto == nil {
+		t.Fatal("GetProtocol(WKURLSchemeHandler) = nil on a device with WebKit")
+	}
+	cls, err := RegisterClassWithProtocols("GoMacosObjcTestSchemeHandler", GetClass("NSObject"),
+		[]*Protocol{proto},
+		[]MethodDef{
+			{Cmd: Sel("webView:startURLSchemeTask:"), Fn: func(_ ID, _ SEL, _ ID, _ ID) {}},
+			{Cmd: Sel("webView:stopURLSchemeTask:"), Fn: func(_ ID, _ SEL, _ ID, _ ID) {}},
+		})
+	if err != nil {
+		t.Fatalf("RegisterClassWithProtocols: %v", err)
+	}
+	inst := ID(cls).Send(Sel("alloc")).Send(Sel("init"))
+	// The exact conformance check WKWebView performs. purego passes the *Protocol
+	// pointer straight through as the argument.
+	if inst.Send(Sel("conformsToProtocol:"), proto) == 0 {
+		t.Fatal("registered class does not conformsToProtocol: WKURLSchemeHandler")
+	}
+	// A class registered WITHOUT the protocol must NOT conform — proving the
+	// declaration is what carries conformance.
+	plain, err := RegisterClass("GoMacosObjcTestPlain", GetClass("NSObject"), nil)
+	if err != nil {
+		t.Fatalf("RegisterClass plain: %v", err)
+	}
+	if ID(plain).Send(Sel("alloc")).Send(Sel("init")).Send(Sel("conformsToProtocol:"), proto) != 0 {
+		t.Fatal("plain class unexpectedly conforms to WKURLSchemeHandler")
+	}
+	t.Log("on-device: RegisterClassWithProtocols yields a class conforming to WKURLSchemeHandler; plain class does not")
+}
+
 func TestOnDevice_AutoreleasePool(t *testing.T) {
 	ran := false
 	AutoreleasePool(func() {

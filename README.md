@@ -19,7 +19,7 @@ bridging, framework `dlopen`, autorelease-pool handling and run loops.
 | --- | --- |
 | Selector / class lookup (cached) | `Sel`, `RegisterName`, `GetClass`, `ClassID` |
 | Messaging | `ID.Send`, generic `Send[T]` (scalars, `CGFloat`, structs) |
-| Runtime classes | `RegisterClass`, `MethodDef` |
+| Runtime classes | `RegisterClass`, `RegisterClassWithProtocols`, `GetProtocol`, `MethodDef` |
 | Strings | `NSString`, `GoString` |
 | Objects / dictionaries | `Stringify`, `DictToMap`, `MapToDict` |
 | Frameworks | `Load` + `Foundation` / `AppKit` / `WebKit` / `CoreFoundation` / `Security` / `LibSystem` |

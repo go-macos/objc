@@ -21,4 +21,7 @@ type (
 	// MethodDef binds a selector to a Go closure for [RegisterClass]. Its Fn's
 	// first two parameters must be (ID, SEL); RegisterClass wraps it into an IMP.
 	MethodDef = objc.MethodDef
+	// Protocol is an Objective-C protocol, looked up with [GetProtocol] and
+	// declared on a class via [RegisterClassWithProtocols].
+	Protocol = objc.Protocol
 )

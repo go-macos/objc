@@ -29,6 +29,10 @@ type MethodDef struct {
 	Fn  any
 }
 
+// Protocol is an Objective-C protocol. On darwin it is an alias of purego's
+// objc.Protocol; here it is a placeholder so the signatures compile.
+type Protocol struct{}
+
 // Send reports the zero [ID] on non-darwin platforms (there is no runtime to
 // message). On darwin the equivalent method is inherited from purego's objc.ID.
 func (id ID) Send(sel SEL, args ...any) ID { return 0 }
@@ -44,6 +48,14 @@ func NSString(s string) ID { return 0 }
 
 // RegisterClass reports [ErrUnsupported] on non-darwin platforms.
 func RegisterClass(name string, super Class, methods []MethodDef) (Class, error) {
+	return 0, ErrUnsupported
+}
+
+// GetProtocol reports a nil protocol on non-darwin platforms.
+func GetProtocol(name string) *Protocol { return nil }
+
+// RegisterClassWithProtocols reports [ErrUnsupported] on non-darwin platforms.
+func RegisterClassWithProtocols(name string, super Class, protocols []*Protocol, methods []MethodDef) (Class, error) {
 	return 0, ErrUnsupported
 }
 

@@ -46,10 +46,28 @@ func NSString(s string) ID {
 // super and the given instance methods, and returns it. Each method's Fn is a
 // Go closure whose first two parameters are the receiver [ID] and the invoked
 // [SEL]; RegisterClass wraps it into an IMP. It is the runtime-class mechanism
-// behind delegates, timer targets and menu-action handlers. (Instance variables
-// and protocols are intentionally omitted; the fleet's classes need neither.)
+// behind delegates, timer targets and menu-action handlers. When the class must
+// formally conform to a protocol, use [RegisterClassWithProtocols]. (Instance
+// variables are intentionally omitted; the fleet's classes need none.)
 func RegisterClass(name string, super Class, methods []MethodDef) (Class, error) {
-	return objc.RegisterClass(name, super, nil, nil, methods)
+	return RegisterClassWithProtocols(name, super, nil, methods)
+}
+
+// GetProtocol returns the Objective-C protocol named name (a nil pointer if no
+// such protocol is registered in the process). Pass the result to
+// [RegisterClassWithProtocols] so a runtime class formally conforms to it —
+// required, for example, by APIs that check conformsToProtocol: such as
+// -[WKWebViewConfiguration setURLSchemeHandler:forURLScheme:], which demands a
+// WKURLSchemeHandler.
+func GetProtocol(name string) *Protocol { return objc.GetProtocol(name) }
+
+// RegisterClassWithProtocols is [RegisterClass] plus formal protocol
+// conformance: the returned class declares each of protocols (so
+// conformsToProtocol: reports true) in addition to implementing methods. Use it
+// when an API validates protocol conformance rather than merely probing
+// respondsToSelector:.
+func RegisterClassWithProtocols(name string, super Class, protocols []*Protocol, methods []MethodDef) (Class, error) {
+	return objc.RegisterClass(name, super, protocols, nil, methods)
 }
 
 // AutoreleasePool runs fn inside a fresh NSAutoreleasePool, draining the pool

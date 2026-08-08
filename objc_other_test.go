@@ -45,6 +45,12 @@ func TestStub_RegisterClassAndRunUnsupported(t *testing.T) {
 	if _, err := RegisterClass("X", GetClass("NSObject"), nil); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("RegisterClass err = %v, want ErrUnsupported", err)
 	}
+	if GetProtocol("WKURLSchemeHandler") != nil {
+		t.Fatal("GetProtocol should be nil on non-darwin")
+	}
+	if _, err := RegisterClassWithProtocols("X", GetClass("NSObject"), nil, nil); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("RegisterClassWithProtocols err = %v, want ErrUnsupported", err)
+	}
 	if err := Run(context.Background(), 0, nil); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("Run err = %v, want ErrUnsupported", err)
 	}
