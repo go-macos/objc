@@ -80,3 +80,12 @@ func TestStub_LoadUnsupported(t *testing.T) {
 		t.Fatalf("Load err = %v, want ErrDlopen", err)
 	}
 }
+
+func TestStub_DispatchMain(t *testing.T) {
+	DispatchMain(nil) // no-op, must not panic.
+	ran := false
+	DispatchMain(func() { ran = true })
+	if !ran {
+		t.Fatal("DispatchMain should run fn inline on non-darwin")
+	}
+}

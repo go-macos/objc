@@ -25,6 +25,7 @@ bridging, framework `dlopen`, autorelease-pool handling and run loops.
 | Frameworks | `Load` + `Foundation` / `AppKit` / `WebKit` / `CoreFoundation` / `Security` / `LibSystem` |
 | Scopes | `AutoreleasePool` |
 | Run loops | `App`, `RunApp`, `Run(ctx, class, setup)` + `Runner` |
+| Main-thread hop | `DispatchMain` (libdispatch `dispatch_async` onto the main queue) |
 | Validation | `ValidateName` |
 
 ```go
