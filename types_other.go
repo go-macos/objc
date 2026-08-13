@@ -78,6 +78,14 @@ func App() ID { return 0 }
 // RunApp is a no-op on non-darwin platforms.
 func RunApp(policy int) {}
 
+// DispatchMain runs fn inline on the calling goroutine on non-darwin platforms
+// (there is no libdispatch main queue). A nil fn is a no-op.
+func DispatchMain(fn func()) {
+	if fn != nil {
+		fn()
+	}
+}
+
 // Runner is the non-darwin stand-in for the [Run] handle. Its methods are
 // no-ops (Submit runs fn directly) so consumer code that references them still
 // compiles.

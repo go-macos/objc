@@ -7,6 +7,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/ebitengine/purego"
 )
 
 // These tests run on a real macOS device (the darwin CI lane and a developer
@@ -236,4 +238,154 @@ func TestOnDevice_LoadRealFramework(t *testing.T) {
 		t.Fatalf("Load(bogus) = %v, want ErrDlopen", err)
 	}
 	t.Log("on-device: Load opened Foundation and rejected a bogus path")
+}
+
+func TestOnDevice_DispatchMainLoadsLibdispatch(t *testing.T) {
+	// Drive loadDispatch directly against the real libSystem: it must resolve
+	// dispatch_async and &_dispatch_main_q on this device, and a real
+	// libdispatch block must be creatable for a function.
+	savedQ, savedErr := dispatchMainQ, dispatchLoadErr
+	defer func() { dispatchMainQ, dispatchLoadErr = savedQ, savedErr }()
+	dispatchMainQ, dispatchLoadErr = 0, nil
+	loadDispatch()
+	if dispatchLoadErr != nil {
+		t.Fatalf("loadDispatch on-device: %v", dispatchLoadErr)
+	}
+	if dispatchMainQ == 0 {
+		t.Fatal("loadDispatch resolved a nil main queue")
+	}
+	if mkBlock(func() {}) == 0 {
+		t.Fatal("mkBlock returned a nil block")
+	}
+	t.Logf("on-device: libdispatch resolved, main queue = %#x", dispatchMainQ)
+}
+
+func TestOnDevice_DispatchMainScheduledHop(t *testing.T) {
+	// Fire dispatchOnce via a real DispatchMain, then cover the scheduled branch
+	// deterministically: a fake dispatch_async "delivers" the block by running
+	// its captured body, so no serviced main queue is required.
+	DispatchMain(func() {})
+	if dispatchLoadErr != nil || dispatchMainQ == 0 {
+		t.Fatalf("real load failed: err=%v q=%#x", dispatchLoadErr, dispatchMainQ)
+	}
+	savedAsync, savedBlock := dispatchAsyncFn, mkBlock
+	defer func() { dispatchAsyncFn, mkBlock = savedAsync, savedBlock }()
+
+	const sentinel uintptr = 0xB10C
+	var captured func()
+	var gotQ, gotBlock uintptr
+	mkBlock = func(fn func()) uintptr { captured = fn; return sentinel }
+	dispatchAsyncFn = func(q, block uintptr) {
+		gotQ, gotBlock = q, block
+		if block == sentinel && captured != nil {
+			captured()
+		}
+	}
+
+	ran := false
+	DispatchMain(func() { ran = true })
+	if gotQ != dispatchMainQ {
+		t.Fatalf("dispatch_async queue = %#x, want %#x", gotQ, dispatchMainQ)
+	}
+	if gotBlock != sentinel {
+		t.Fatalf("dispatch_async block = %#x, want %#x", gotBlock, sentinel)
+	}
+	if !ran {
+		t.Fatal("DispatchMain did not run the scheduled fn")
+	}
+	t.Log("on-device: DispatchMain scheduled fn onto the main queue via dispatch_async")
+}
+
+func TestOnDevice_DispatchMainNilAndFallback(t *testing.T) {
+	DispatchMain(nil) // nil fn is a no-op, must not panic.
+
+	DispatchMain(func() {}) // ensure dispatchOnce has fired.
+	savedQ, savedErr := dispatchMainQ, dispatchLoadErr
+	defer func() { dispatchMainQ, dispatchLoadErr = savedQ, savedErr }()
+
+	// Fallback with an unresolved queue: fn runs inline.
+	dispatchMainQ, dispatchLoadErr = 0, nil
+	ran := false
+	DispatchMain(func() { ran = true })
+	if !ran {
+		t.Fatal("DispatchMain (nil queue) did not run fn inline")
+	}
+
+	// Fallback with a load error: fn runs inline.
+	dispatchMainQ, dispatchLoadErr = 0x1, errors.New("boom")
+	ran = false
+	DispatchMain(func() { ran = true })
+	if !ran {
+		t.Fatal("DispatchMain (load error) did not run fn inline")
+	}
+}
+
+func TestDispatchLoadBranches(t *testing.T) {
+	savedOpen, savedSym, savedReg := ldOpen, ldSym, ldReg
+	savedQ, savedErr := dispatchMainQ, dispatchLoadErr
+	defer func() {
+		ldOpen, ldSym, ldReg = savedOpen, savedSym, savedReg
+		dispatchMainQ, dispatchLoadErr = savedQ, savedErr
+	}()
+	ldReg = func(uintptr) {} // never touch the real symbol table under fakes.
+
+	// dlopen failure.
+	ldOpen = func() (uintptr, error) { return 0, errors.New("no libSystem") }
+	dispatchMainQ, dispatchLoadErr = 0, nil
+	loadDispatch()
+	if dispatchLoadErr == nil {
+		t.Fatal("expected a load error on dlopen failure")
+	}
+
+	// dlsym failure.
+	ldOpen = func() (uintptr, error) { return 1, nil }
+	ldSym = func(uintptr) (uintptr, error) { return 0, errors.New("no symbol") }
+	dispatchMainQ, dispatchLoadErr = 0, nil
+	loadDispatch()
+	if dispatchLoadErr == nil {
+		t.Fatal("expected a load error on dlsym failure")
+	}
+
+	// dlsym returns a nil queue with no error (defensive q==0 branch).
+	ldSym = func(uintptr) (uintptr, error) { return 0, nil }
+	dispatchMainQ, dispatchLoadErr = 0, nil
+	loadDispatch()
+	if dispatchLoadErr == nil {
+		t.Fatal("expected a load error on a nil main queue")
+	}
+
+	// success with fakes.
+	ldSym = func(uintptr) (uintptr, error) { return 0x2000, nil }
+	dispatchMainQ, dispatchLoadErr = 0, nil
+	loadDispatch()
+	if dispatchLoadErr != nil || dispatchMainQ != 0x2000 {
+		t.Fatalf("expected success, got err=%v q=%#x", dispatchLoadErr, dispatchMainQ)
+	}
+}
+
+func TestOnDevice_DispatchBlockInvokes(t *testing.T) {
+	// Prove mkBlock's block actually runs its Go body under libdispatch. A global
+	// concurrent queue with dispatch_sync executes the block synchronously, so no
+	// serviced main run loop is needed (which a unit-test process lacks).
+	h, err := purego.Dlopen(LibSystem, purego.RTLD_LAZY|purego.RTLD_GLOBAL)
+	if err != nil {
+		t.Fatalf("dlopen libSystem: %v", err)
+	}
+	var dispatchSync func(queue, block uintptr)
+	purego.RegisterLibFunc(&dispatchSync, h, "dispatch_sync")
+	var getGlobalQueue func(identity int, flags uintptr) uintptr
+	purego.RegisterLibFunc(&getGlobalQueue, h, "dispatch_get_global_queue")
+
+	q := getGlobalQueue(0, 0) // DISPATCH_QUEUE_PRIORITY_DEFAULT
+	if q == 0 {
+		t.Fatal("dispatch_get_global_queue returned nil")
+	}
+	ran := make(chan struct{}, 1)
+	dispatchSync(q, mkBlock(func() { ran <- struct{}{} }))
+	select {
+	case <-ran:
+	case <-time.After(2 * time.Second):
+		t.Fatal("libdispatch did not invoke the block body")
+	}
+	t.Log("on-device: mkBlock's block body executed under libdispatch")
 }
