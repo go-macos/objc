@@ -26,6 +26,7 @@ bridging, framework `dlopen`, autorelease-pool handling and run loops.
 | Scopes | `AutoreleasePool` |
 | Run loops | `App`, `RunApp`, `Run(ctx, class, setup)` + `Runner` |
 | Main-thread hop | `DispatchMain` (libdispatch `dispatch_async` onto the main queue) |
+| Blocks | `Block`, `NewBlock`, `Block.Release`, `Block.Copy` |
 | Validation | `ValidateName` |
 
 ```go
@@ -42,6 +43,22 @@ cls, _ := objc.RegisterClass("MyTarget", objc.GetClass("NSObject"),
             // handle sender
         }},
     })
+```
+
+Asynchronous Cocoa APIs take a **completion handler block**. The Go function's
+first parameter is the block itself; the rest are the block's arguments:
+
+```go
+block := objc.NewBlock(func(b objc.Block, content objc.ID, err objc.ID) {
+    defer b.Release() // the block is retained until released
+    if err != 0 {
+        log.Println(objc.Stringify(err))
+        return
+    }
+    use(content)
+})
+objc.ClassID("SCShareableContent").
+    Send(objc.Sel("getShareableContentWithCompletionHandler:"), block)
 ```
 
 ## Design

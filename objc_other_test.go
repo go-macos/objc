@@ -89,3 +89,15 @@ func TestStub_DispatchMain(t *testing.T) {
 		t.Fatal("DispatchMain should run fn inline on non-darwin")
 	}
 }
+
+func TestStub_Blocks(t *testing.T) {
+	b := NewBlock(func(Block, ID) {})
+	if b != 0 {
+		t.Fatalf("NewBlock = %#x, want the zero Block on non-darwin", uintptr(b))
+	}
+	b.Release() // no-op, must not panic.
+	if c := Block(7).Copy(); c != Block(7) {
+		t.Fatalf("Block.Copy = %#x, want the receiver unchanged on non-darwin", uintptr(c))
+	}
+	Block(7).Release()
+}
