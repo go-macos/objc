@@ -26,6 +26,10 @@
 //     [WebKit], [CoreFoundation], [LibSystem]): idempotent dlopen.
 //   - [AutoreleasePool]: run a closure inside an NSAutoreleasePool scope.
 //   - [App] / [RunApp]: the shared NSApplication and its [NSApp run] loop.
+//   - [NewBlock] / [Block]: Objective-C blocks, the shape every Cocoa
+//     completion handler takes. The wrapped Go function's first parameter is
+//     the block itself; release the block once the handler has run.
+//   - [DispatchMain]: hop a closure onto the libdispatch main queue.
 //   - [Run]: a Foundation run-loop runner pinned to a locked OS thread, with a
 //     task queue serviced on that thread — for observer-driven Foundation work
 //     (e.g. NSDistributedNotificationCenter).

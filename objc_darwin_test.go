@@ -389,3 +389,112 @@ func TestOnDevice_DispatchBlockInvokes(t *testing.T) {
 	}
 	t.Log("on-device: mkBlock's block body executed under libdispatch")
 }
+
+func TestOnDevice_BlockRoundTripsThroughNSArray(t *testing.T) {
+	// The real proof that the block ABI is right: hand a Go closure to a genuine
+	// Cocoa API — -[NSArray enumerateObjectsUsingBlock:], whose block type is
+	// void (^)(id obj, NSUInteger idx, BOOL *stop) — and check it was invoked
+	// once per element with the objects and indices Foundation passed in. A
+	// wrong block layout, signature encoding or argument order fails this test
+	// (or crashes), which is the point.
+	want := []string{"alpha", "beta", "gamma", "délta"}
+	arr := ClassID("NSMutableArray").Send(Sel("array"))
+	if arr == 0 {
+		t.Fatal("NSMutableArray array returned nil")
+	}
+	for _, s := range want {
+		arr.Send(Sel("addObject:"), NSString(s))
+	}
+	if n := int(arr.Send(Sel("count"))); n != len(want) {
+		t.Fatalf("array count = %d, want %d", n, len(want))
+	}
+
+	var gotStrings []string
+	var gotIndices []int
+	var gotSelf []Block
+	block := NewBlock(func(b Block, obj ID, idx uint, stop *bool) {
+		gotSelf = append(gotSelf, b)
+		gotStrings = append(gotStrings, Stringify(obj))
+		gotIndices = append(gotIndices, int(idx))
+		_ = stop
+	})
+	defer block.Release()
+	if block == 0 {
+		t.Fatal("NewBlock returned the nil block")
+	}
+
+	arr.Send(Sel("enumerateObjectsUsingBlock:"), block)
+
+	if len(gotStrings) != len(want) {
+		t.Fatalf("block ran %d times, want %d (%q)", len(gotStrings), len(want), gotStrings)
+	}
+	for i, s := range want {
+		if gotStrings[i] != s {
+			t.Fatalf("block arg %d = %q, want %q", i, gotStrings[i], s)
+		}
+		if gotIndices[i] != i {
+			t.Fatalf("block index %d = %d, want %d", i, gotIndices[i], i)
+		}
+		if gotSelf[i] != block {
+			t.Fatalf("block self pointer %d = %#x, want %#x", i, uintptr(gotSelf[i]), uintptr(block))
+		}
+	}
+	t.Logf("on-device: NSArray enumerateObjectsUsingBlock: invoked the Go block %d times with %q", len(gotStrings), gotStrings)
+}
+
+func TestOnDevice_BlockStopsEnumeration(t *testing.T) {
+	// The third block argument is a BOOL* the callee writes to abort the
+	// enumeration. Writing through it from Go proves the pointer argument
+	// really is Foundation's stop flag, not a stray register.
+	arr := ClassID("NSMutableArray").Send(Sel("array"))
+	for _, s := range []string{"one", "two", "three", "four"} {
+		arr.Send(Sel("addObject:"), NSString(s))
+	}
+	calls := 0
+	block := NewBlock(func(_ Block, _ ID, _ uint, stop *bool) {
+		calls++
+		*stop = true
+	})
+	defer block.Release()
+
+	arr.Send(Sel("enumerateObjectsUsingBlock:"), block)
+	if calls != 1 {
+		t.Fatalf("block ran %d times after setting *stop, want 1", calls)
+	}
+	t.Log("on-device: writing *stop aborted enumerateObjectsUsingBlock: after one element")
+}
+
+func TestOnDevice_BlockCopyAndRelease(t *testing.T) {
+	// Copy yields a block that is still callable (the copy shares the cached Go
+	// function), and each Copy owes a Release.
+	arr := ClassID("NSMutableArray").Send(Sel("array"))
+	arr.Send(Sel("addObject:"), NSString("solo"))
+
+	var seen string
+	block := NewBlock(func(_ Block, obj ID, _ uint, _ *bool) { seen = Stringify(obj) })
+	copied := block.Copy()
+	if copied == 0 {
+		t.Fatal("Block.Copy returned the nil block")
+	}
+	arr.Send(Sel("enumerateObjectsUsingBlock:"), copied)
+	if seen != "solo" {
+		t.Fatalf("copied block delivered %q, want %q", seen, "solo")
+	}
+	copied.Release()
+	block.Release()
+	t.Log("on-device: a copied block invoked the same Go closure; both references released")
+}
+
+func TestOnDevice_NewBlockRejectsMissingBlockParameter(t *testing.T) {
+	// The documented contract: the Go function's first parameter must be a
+	// Block. purego panics otherwise, so consumers get a loud failure rather
+	// than a shifted-by-one argument list at runtime.
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("NewBlock(func(ID)) did not panic")
+		}
+		t.Logf("on-device: NewBlock rejected a non-Block first parameter: %v", r)
+	}()
+	_ = NewBlock(func(ID) {})
+}

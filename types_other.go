@@ -104,3 +104,28 @@ func (r *Runner) Submit(fn func()) { fn() }
 func Run(ctx context.Context, runnerClass Class, setup func(r *Runner)) error {
 	return ErrUnsupported
 }
+
+// ---------------------------------------------------------------------------
+// Objective-C blocks.
+// ---------------------------------------------------------------------------
+
+// Block is an Objective-C block. On darwin it is an alias of purego's
+// objc.Block; here it is a plain uintptr-width type with the same
+// zero-is-nil semantics, so consumer code that stores or passes blocks
+// cross-compiles.
+type Block uintptr
+
+// NewBlock reports the zero [Block] on non-darwin platforms (there is no
+// runtime to call the function back). On darwin it wraps a Go function whose
+// first parameter is a [Block] into a real Objective-C block.
+func NewBlock(fn any) Block { return 0 }
+
+// Release is a no-op on non-darwin platforms. On darwin it decrements the
+// block's reference count, dropping the internal retain that keeps the Go
+// closure alive.
+func (b Block) Release() {}
+
+// Copy reports the receiver unchanged on non-darwin platforms. On darwin it
+// copies the block onto the Objective-C heap so it outlives the frame that
+// created it.
+func (b Block) Copy() Block { return b }
