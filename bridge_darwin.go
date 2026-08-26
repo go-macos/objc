@@ -73,7 +73,22 @@ func RegisterClassWithProtocols(name string, super Class, protocols []*Protocol,
 // AutoreleasePool runs fn inside a fresh NSAutoreleasePool, draining the pool
 // when fn returns (even if it panics). Use it around a burst of autoreleased
 // allocations on a thread that has no ambient pool.
+//
+// The goroutine is PINNED to its OS thread for the whole of it.
+//
+// An NSAutoreleasePool belongs to the thread that created it, and Go moves an
+// unlocked goroutine to another thread at any preemption point — a function
+// call, an allocation, a channel operation, anything fn does. The pool is then
+// drained on a thread that never owned it, and the Objective-C runtime does not
+// return from that: it is a SIGSEGV inside objc_autoreleasePoolPop, at a
+// program counter with nothing of this package on the stack.
+//
+// It is a race, so it does not fail on the machine it was written on. It failed
+// on a CI runner on 2026-08-27, in a caller that had done nothing but add two
+// more shortcuts to look up.
 func AutoreleasePool(fn func()) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	pool := ClassID("NSAutoreleasePool").Send(Sel("alloc")).Send(Sel("init"))
 	defer pool.Send(Sel("drain"))
 	fn()
