@@ -52,9 +52,14 @@ var (
 // smallest thing it can do instead, and it belongs here rather than being bound
 // again in every package that meets the problem.
 //
-// It is not a substitute for [Run] or [DispatchMain]: it services whatever is
-// attached to the CURRENT thread's run loop and returns. A negative or zero
-// duration returns at once, having done nothing.
+// ⚠ PUMPING IS NOT A SLEEP. A run loop with nothing attached to it returns
+// kCFRunLoopRunFinished AT ONCE -- measured at 54µs for a 50 ms pump in a bare
+// test binary -- so this is a chance for pending work to be delivered, not a
+// delay. A caller that needs a delay should say so with time.Sleep.
+//
+// It is not a substitute for [Run] or [DispatchMain] either: it services
+// whatever is attached to the CURRENT thread's run loop and returns. A negative
+// or zero duration returns at once, having done nothing at all.
 func PumpRunLoop(seconds float64) error {
 	rlOnce.Do(func() {
 		h, err := rlOpen()

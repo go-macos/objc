@@ -22,15 +22,14 @@ func resetPump(t *testing.T) {
 
 func TestPumpRunLoopRunsAndReturns(t *testing.T) {
 	resetPump(t)
-	start := time.Now()
 	if err := PumpRunLoop(0.05); err != nil {
 		t.Fatalf("PumpRunLoop: %v", err)
 	}
-	// It really waited: a pump that returned at once would not have serviced
-	// anything, which is the whole point of it.
-	if waited := time.Since(start); waited < 40*time.Millisecond {
-		t.Errorf("returned after %v, asked for 50ms", waited)
-	}
+	// NOT asserted: that it waited fifty milliseconds. A run loop with nothing
+	// attached to it returns kCFRunLoopRunFinished AT ONCE, which is
+	// CFRunLoopRunInMode's contract and not a fault -- measured here at 54µs in
+	// a bare test binary. Pumping is not a sleep, and a test that demanded one
+	// was asserting something the API never promised.
 	// Twice: the second call must not reload anything.
 	if err := PumpRunLoop(0.01); err != nil {
 		t.Errorf("second PumpRunLoop: %v", err)
