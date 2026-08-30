@@ -36,6 +36,7 @@ const (
 	AppKit         = "/System/Library/Frameworks/AppKit.framework/AppKit"
 	WebKit         = "/System/Library/Frameworks/WebKit.framework/WebKit"
 	CoreFoundation = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+	CoreGraphics   = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
 	Security       = "/System/Library/Frameworks/Security.framework/Security"
 	LibSystem      = "/usr/lib/libSystem.B.dylib"
 )
@@ -202,4 +203,31 @@ func Load(paths ...string) error {
 		}
 	}
 	return nil
+}
+
+// Open dlopens path and returns the library HANDLE, so a caller can bind plain
+// C entry points out of it with purego.RegisterLibFunc. A failure is wrapped in
+// [ErrDlopen], naming the path.
+//
+// It exists because not everything macOS offers is an Objective-C message.
+// CGGetActiveDisplayList, CGDisplayBounds and pthread_main_np are C functions,
+// and binding one needs the handle that [Load] deliberately discards. Without
+// Open, every consumer that wants a C symbol writes its own purego.Dlopen with
+// its own copy of the path and its own choice of RTLD flags — which is how a
+// process ends up with two different opinions about which libraries it has
+// loaded, and how a framework that one path loads and another does not becomes
+// a nil class somewhere far away.
+//
+// The flags are RTLD_NOW|RTLD_GLOBAL, the same ones Load uses, so a library
+// opened through either is resolved eagerly and its symbols are visible to
+// everything else in the process. dlopen refcounts, so opening an
+// already-resident library is cheap and Open may be called freely.
+func Open(path string) (uintptr, error) {
+	loadMu.Lock()
+	defer loadMu.Unlock()
+	h, err := dlopenFn(path, rtldNow|rtldGlobal)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %s: %v", ErrDlopen, path, err)
+	}
+	return h, nil
 }
