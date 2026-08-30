@@ -5,6 +5,7 @@ package objc
 import (
 	"context"
 	"runtime"
+	"sync"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -94,9 +95,23 @@ func AutoreleasePool(fn func()) {
 	fn()
 }
 
+// appKitOnce loads AppKit the first time anything here asks for the shared
+// application.
+var appKitOnce sync.Once
+
 // App returns the shared NSApplication instance (+[NSApplication
-// sharedApplication]), creating it on first call.
-func App() ID { return ClassID("NSApplication").Send(Sel("sharedApplication")) }
+// sharedApplication]), creating it on first call, and loads AppKit first.
+//
+// The load belongs here rather than with the caller. This is the function that
+// names NSApplication, and a caller who forgets gets a nil class, a nil
+// application, and every message after it returning zero — in silence, because
+// Objective-C does not complain about a message to nil. A menu-bar program
+// built that way starts, prints its greeting and exits in a millisecond, with
+// nothing on screen and nothing in a log. It cost six attempts to find once.
+func App() ID {
+	appKitOnce.Do(func() { _ = Load(AppKit) })
+	return ClassID("NSApplication").Send(Sel("sharedApplication"))
+}
 
 // RunApp sets the shared application's activation policy and enters the AppKit
 // run loop ([NSApp run]), which blocks until the application terminates. It
