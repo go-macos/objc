@@ -199,3 +199,46 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// TestOpenReturnsTheHandleLoadDiscards covers the seam Open adds: the handle a
+// caller needs to bind a plain C symbol, and the wrapped failure when the
+// library is not there.
+func TestOpenReturnsTheHandleLoadDiscards(t *testing.T) {
+	od := dlopenFn
+	defer func() { dlopenFn = od }()
+
+	var asked string
+	dlopenFn = func(path string, mode int) (uintptr, error) {
+		asked = path
+		if mode != rtldNow|rtldGlobal {
+			t.Errorf("Open mode = %#x, want %#x", mode, rtldNow|rtldGlobal)
+		}
+		return 0x2a, nil
+	}
+	h, err := Open(CoreGraphics)
+	if err != nil {
+		t.Fatalf("Open success = %v", err)
+	}
+	// The handle itself, not merely "no error": Load already returns no error
+	// and is useless for binding a C function, which is the whole difference.
+	if h != 0x2a {
+		t.Fatalf("Open handle = %#x, want %#x", h, 0x2a)
+	}
+	if asked != CoreGraphics {
+		t.Fatalf("Open asked for %q, want %q", asked, CoreGraphics)
+	}
+
+	dlopenFn = func(string, int) (uintptr, error) { return 0, errors.New("no such framework") }
+	h, err = Open(WebKit)
+	if !errors.Is(err, ErrDlopen) {
+		t.Fatalf("Open error = %v, want ErrDlopen", err)
+	}
+	// A caller that ignored the error must not be handed something that looks
+	// like a library.
+	if h != 0 {
+		t.Fatalf("Open returned handle %#x alongside an error", h)
+	}
+	if got := err.Error(); !contains(got, "WebKit") {
+		t.Fatalf("Open error %q should name the framework", got)
+	}
+}
