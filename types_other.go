@@ -135,3 +135,6 @@ func StopApp() {}
 
 // WakeMainRunLoop does nothing on platforms without a CoreFoundation run loop.
 func WakeMainRunLoop() {}
+
+// RunAppLoop is a no-op on platforms without AppKit.
+func RunAppLoop(policy int, stop func() bool) {}
