@@ -129,3 +129,9 @@ func (b Block) Release() {}
 // copies the block onto the Objective-C heap so it outlives the frame that
 // created it.
 func (b Block) Copy() Block { return b }
+
+// StopApp does nothing on platforms without AppKit.
+func StopApp() {}
+
+// WakeMainRunLoop does nothing on platforms without a CoreFoundation run loop.
+func WakeMainRunLoop() {}
