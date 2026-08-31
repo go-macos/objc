@@ -35,19 +35,26 @@ func TestWakeMainRunLoopStopsAWaitingLoop(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	done := make(chan time.Duration, 1)
+	// The waker is JOINED before the test returns, not left running. The seams
+	// it reads are package variables that this test's cleanup puts back, and a
+	// goroutine still touching them while that happens is a race -- which is
+	// what the detector said the first time this was written.
+	woke := make(chan struct{})
 	go func() {
+		defer close(woke)
 		time.Sleep(50 * time.Millisecond)
 		WakeMainRunLoop()
 	}()
+
 	start := time.Now()
-	// Ten seconds, which is fifty times longer than the wake-up should take and
-	// still short enough to fail a test rather than hang a suite.
+	// Ten seconds, which is far longer than the wake-up should take and still
+	// short enough to fail a test rather than hang a suite.
 	if err := PumpRunLoop(10); err != nil {
 		t.Fatalf("PumpRunLoop: %v", err)
 	}
-	done <- time.Since(start)
-	if took := <-done; took > 5*time.Second {
+	took := time.Since(start)
+	<-woke
+	if took > 5*time.Second {
 		t.Errorf("the loop ran for %v; the wake-up did not reach it", took)
 	}
 }
