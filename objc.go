@@ -39,6 +39,10 @@ const (
 	CoreGraphics   = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
 	Security       = "/System/Library/Frameworks/Security.framework/Security"
 	LibSystem      = "/usr/lib/libSystem.B.dylib"
+	// LibObjC is the Objective-C runtime itself, which exports objc_msgSend.
+	// A caller needs it to bind a message send with a signature the general one
+	// cannot express -- a double, which goes in a floating-point register.
+	LibObjC = "/usr/lib/libobjc.A.dylib"
 )
 
 // nsUTF8Encoding is NSUTF8StringEncoding, the encoding used for every
