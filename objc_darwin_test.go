@@ -268,12 +268,12 @@ func TestOnDevice_DispatchMainScheduledHop(t *testing.T) {
 	if dispatchLoadErr != nil || dispatchMainQ == 0 {
 		t.Fatalf("real load failed: err=%v q=%#x", dispatchLoadErr, dispatchMainQ)
 	}
-	savedAsync, savedBlock := dispatchAsyncFn, mkBlock
-	defer func() { dispatchAsyncFn, mkBlock = savedAsync, savedBlock }()
+	savedAsync, savedBlock, savedRm := dispatchAsyncFn, mkBlock, rmBlock
+	defer func() { dispatchAsyncFn, mkBlock, rmBlock = savedAsync, savedBlock, savedRm }()
 
 	const sentinel uintptr = 0xB10C
 	var captured func()
-	var gotQ, gotBlock uintptr
+	var gotQ, gotBlock, freed uintptr
 	mkBlock = func(fn func()) uintptr { captured = fn; return sentinel }
 	dispatchAsyncFn = func(q, block uintptr) {
 		gotQ, gotBlock = q, block
@@ -281,6 +281,11 @@ func TestOnDevice_DispatchMainScheduledHop(t *testing.T) {
 			captured()
 		}
 	}
+	// ⛔ AND rmBlock IS FAKED TOO, or the sentinel goes to _Block_release: this
+	// test crashed with "fault 0xb114" -- 0xB10C plus the offset a release reads
+	// -- the moment the real one was left in place. A seam that is only half
+	// replaced is a seam that runs half the real thing.
+	rmBlock = func(b uintptr) { freed = b }
 
 	ran := false
 	DispatchMain(func() { ran = true })
@@ -292,6 +297,15 @@ func TestOnDevice_DispatchMainScheduledHop(t *testing.T) {
 	}
 	if !ran {
 		t.Fatal("DispatchMain did not run the scheduled fn")
+	}
+	// ⛔⛔ AND THE BLOCK IS GIVEN BACK. Without this, every call leaked a block
+	// and the purego table entry holding its closure: measured at about 200
+	// bytes a call, 3 576 blocks costing 14.2 MB resident against 44.4 MB for
+	// 161 782. dispatch_async takes its own reference, so releasing ours here is
+	// what its contract is for.
+	if freed != sentinel {
+		t.Errorf("the block was released as %#x, want %#x: DispatchMain is "+
+			"leaking one block and one closure per call", freed, sentinel)
 	}
 	t.Log("on-device: DispatchMain scheduled fn onto the main queue via dispatch_async")
 }

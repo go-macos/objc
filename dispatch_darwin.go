@@ -36,6 +36,9 @@ var (
 	mkBlock = func(fn func()) uintptr {
 		return uintptr(objc.NewBlock(func(objc.Block) { fn() }))
 	}
+	// rmBlock drops OUR reference to a block once dispatch_async has taken its
+	// own. See [DispatchMain].
+	rmBlock = func(b uintptr) { objc.Block(b).Release() }
 )
 
 // loadDispatch resolves dispatch_async and the main queue from libSystem,
@@ -62,6 +65,24 @@ func loadDispatch() {
 // methods must be messaged on the main thread). A nil fn is a no-op. If
 // libdispatch cannot be resolved, fn runs inline on the calling goroutine rather
 // than being dropped.
+//
+// ⛔⛔ AND THE BLOCK IS RELEASED. It was not, and every call leaked one for the
+// life of the process — the block itself, and the entry purego keeps in its
+// block table to hold the Go closure alive. Measured, one process posting
+// blocks and draining them on the main thread:
+//
+//	3 576 blocks   14.2 MB resident
+//	42 824 blocks  22.3 MB
+//	161 782 blocks 44.4 MB
+//
+// which is about 200 bytes a call, never returned. An application that hops to
+// the main thread once a frame reaches those numbers in minutes.
+//
+// ⭐ RELEASING HERE IS SAFE BECAUSE dispatch_async TAKES ITS OWN REFERENCE, and
+// must: its contract is that the caller may free the block as soon as the call
+// returns. So the count goes to two and back to one here, libdispatch drops the
+// last one after running the block, and purego's dispose helper then removes
+// the table entry — which is the only thing that ever removes one.
 func DispatchMain(fn func()) {
 	if fn == nil {
 		return
@@ -71,5 +92,7 @@ func DispatchMain(fn func()) {
 		fn()
 		return
 	}
-	dispatchAsyncFn(dispatchMainQ, mkBlock(fn))
+	b := mkBlock(fn)
+	dispatchAsyncFn(dispatchMainQ, b)
+	rmBlock(b)
 }
