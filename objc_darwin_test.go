@@ -3,8 +3,11 @@
 package objc
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/png"
 	"testing"
 	"time"
 
@@ -101,6 +104,26 @@ func TestOnDevice_App(t *testing.T) {
 		t.Fatal("App() returned nil NSApplication")
 	}
 	t.Log("on-device: App() resolved the shared NSApplication")
+}
+
+func TestOnDevice_SetApplicationIconImage(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, 4, 4))); err != nil {
+		t.Fatalf("encoding a test PNG: %v", err)
+	}
+	SetApplicationIconImage(buf.Bytes())
+
+	if got := App().Send(Sel("applicationIconImage")); got == 0 {
+		t.Fatal("applicationIconImage is nil after SetApplicationIconImage")
+	}
+}
+
+func TestOnDevice_SetApplicationIconImageEmptyIsANoOp(t *testing.T) {
+	before := App().Send(Sel("applicationIconImage"))
+	SetApplicationIconImage(nil)
+	if got := App().Send(Sel("applicationIconImage")); got != before {
+		t.Fatalf("empty png changed applicationIconImage from %v to %v, want unchanged", before, got)
+	}
 }
 
 func TestOnDevice_RegisterClassWithProtocols(t *testing.T) {
