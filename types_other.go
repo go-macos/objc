@@ -78,6 +78,9 @@ func App() ID { return 0 }
 // RunApp is a no-op on non-darwin platforms.
 func RunApp(policy int) {}
 
+// SetApplicationIconImage is a no-op on non-darwin platforms.
+func SetApplicationIconImage(png []byte) {}
+
 // DispatchMain runs fn inline on the calling goroutine on non-darwin platforms
 // (there is no libdispatch main queue). A nil fn is a no-op.
 func DispatchMain(fn func()) {

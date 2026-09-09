@@ -123,6 +123,30 @@ func RunApp(policy int) {
 	app.Send(Sel("run"))
 }
 
+// SetApplicationIconImage sets the Dock/Cmd+Tab icon NSApp shows for the
+// whole process, from PNG bytes — replacing whatever default AppKit
+// would otherwise pick, which for an unsigned binary with no
+// Info.plist icon resource is no icon at all, not merely a generic
+// one. Only visible while activation policy is Regular ([RunAppLoop]'s
+// policy 0): an Accessory-policy process keeps the image set but shows
+// no Dock tile until it becomes Regular, so it is safe — and normal —
+// to call this once at startup regardless of which policy the process
+// runs under moment to moment.
+//
+// Empty png is a no-op: a caller with no icon to offer leaves whatever
+// AppKit already has rather than clearing it to nothing.
+func SetApplicationIconImage(png []byte) {
+	if len(png) == 0 {
+		return
+	}
+	data := ClassID("NSData").Send(Sel("dataWithBytes:length:"), unsafe.Pointer(&png[0]), uintptr(len(png)))
+	img := ClassID("NSImage").Send(Sel("alloc")).Send(Sel("initWithData:"), data)
+	if img == 0 {
+		return
+	}
+	App().Send(Sel("setApplicationIconImage:"), img)
+}
+
 // ---------------------------------------------------------------------------
 // NSObject / NSDictionary helpers.
 // ---------------------------------------------------------------------------

@@ -38,7 +38,8 @@ func TestStub_MessagingReturnsZero(t *testing.T) {
 	if App() != 0 {
 		t.Fatal("App should return 0 on non-darwin")
 	}
-	RunApp(0) // no-op, must not panic
+	RunApp(0)                                // no-op, must not panic
+	SetApplicationIconImage([]byte{1, 2, 3}) // no-op, must not panic
 }
 
 func TestStub_RegisterClassAndRunUnsupported(t *testing.T) {
