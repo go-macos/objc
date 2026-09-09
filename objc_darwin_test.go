@@ -106,6 +106,17 @@ func TestOnDevice_App(t *testing.T) {
 	t.Log("on-device: App() resolved the shared NSApplication")
 }
 
+// TestOnDevice_SetApplicationIconImage cannot, by construction, catch
+// the ordering bug this file's own package-level init() masks: every
+// test in this binary shares that one init(), which pre-loads
+// Foundation+AppKit before ANY test body runs, so no test here is ever
+// the first AppKit call in its process. That specific failure mode
+// (ClassID("NSImage") resolving to nil because AppKit wasn't loaded
+// yet) was only found live, via a standalone program with no other
+// AppKit call ahead of it — the shape a real menu-bar app's own
+// startup actually has. This test still guards the RIGHT THING (the
+// function does what it says once AppKit is loaded), just not that one
+// specific regression.
 func TestOnDevice_SetApplicationIconImage(t *testing.T) {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, 4, 4))); err != nil {
