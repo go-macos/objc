@@ -139,12 +139,22 @@ func SetApplicationIconImage(png []byte) {
 	if len(png) == 0 {
 		return
 	}
+	// App(), not a bare Load(AppKit): NSImage is an AppKit class, and a
+	// caller reaching this function first — an app's own startup, before
+	// any other AppKit call — has never triggered the load otherwise.
+	// ClassID("NSImage") before AppKit is loaded resolves to a nil class;
+	// alloc and initWithData: on nil are Objective-C's own well-defined
+	// "message to nil" no-op, returning nil in turn — so img == 0 below
+	// happened SILENTLY, in exactly the shape App()'s own doc comment
+	// already warns about. Six years of not having a caller stumble into
+	// this, and this function found the way anyway.
+	app := App()
 	data := ClassID("NSData").Send(Sel("dataWithBytes:length:"), unsafe.Pointer(&png[0]), uintptr(len(png)))
 	img := ClassID("NSImage").Send(Sel("alloc")).Send(Sel("initWithData:"), data)
 	if img == 0 {
 		return
 	}
-	App().Send(Sel("setApplicationIconImage:"), img)
+	app.Send(Sel("setApplicationIconImage:"), img)
 }
 
 // ---------------------------------------------------------------------------
