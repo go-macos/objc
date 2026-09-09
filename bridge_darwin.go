@@ -154,8 +154,31 @@ func SetApplicationIconImage(png []byte) {
 	if img == 0 {
 		return
 	}
+	// An NSImage built from data takes its SIZE from the bitmap's PIXEL
+	// count, not a sensible logical size: a source PNG shipped at a
+	// crisp 1024x1024 for Retina reports an image that is (as far as
+	// AppKit's layout is concerned) 1024 POINTS across — which is why an
+	// icon set this way rendered visibly larger than every sibling Dock
+	// tile despite looking like an ordinary app icon. dockIconPoints is
+	// macOS's own "large icon" convention (the size Finder/the Dock
+	// treat as a normal app icon); explicit sizing turns the extra
+	// pixels into resolution instead of dimensions, matching
+	// go-widgets/tray's identical fix for its own menu-bar/menu-row
+	// icons (nsImageFromPNG).
+	if sz := Send[NSSize](img, Sel("size")); sz.Height > 0 {
+		img.Send(Sel("setSize:"), NSSize{
+			Width:  sz.Width * dockIconPoints / sz.Height,
+			Height: dockIconPoints,
+		})
+	}
 	app.Send(Sel("setApplicationIconImage:"), img)
 }
+
+// dockIconPoints is the logical size (in points) SetApplicationIconImage
+// scales its image to — macOS's own "large icon" convention (128pt),
+// the size Finder and the Dock already treat as an ordinary app icon
+// regardless of how many source pixels back it.
+const dockIconPoints = 128
 
 // ---------------------------------------------------------------------------
 // NSObject / NSDictionary helpers.

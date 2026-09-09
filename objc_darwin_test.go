@@ -129,6 +129,31 @@ func TestOnDevice_SetApplicationIconImage(t *testing.T) {
 	}
 }
 
+// TestOnDevice_SetApplicationIconImageScalesToDockIconPoints is the actual
+// regression this exists for: a source PNG shipped at a crisp Retina
+// resolution (1024x1024, the shape a real brand asset actually is) must
+// still report a normal "large icon" LOGICAL size, not the raw pixel
+// count — an NSImage built via initWithData: takes its .size from the
+// bitmap's pixel dimensions by default, which is why an icon set this
+// way rendered visibly larger than every sibling Dock tile despite
+// looking like an ordinary app icon.
+func TestOnDevice_SetApplicationIconImageScalesToDockIconPoints(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, 1024, 1024))); err != nil {
+		t.Fatalf("encoding a test PNG: %v", err)
+	}
+	SetApplicationIconImage(buf.Bytes())
+
+	icon := App().Send(Sel("applicationIconImage"))
+	if icon == 0 {
+		t.Fatal("applicationIconImage is nil after SetApplicationIconImage")
+	}
+	got := Send[NSSize](icon, Sel("size"))
+	if got.Width != dockIconPoints || got.Height != dockIconPoints {
+		t.Errorf("applicationIconImage.size = %+v from a 1024x1024 source, want %vx%v points", got, dockIconPoints, dockIconPoints)
+	}
+}
+
 func TestOnDevice_SetApplicationIconImageEmptyIsANoOp(t *testing.T) {
 	before := App().Send(Sel("applicationIconImage"))
 	SetApplicationIconImage(nil)
