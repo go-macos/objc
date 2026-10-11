@@ -108,6 +108,31 @@ var appKitOnce sync.Once
 // Objective-C does not complain about a message to nil. A menu-bar program
 // built that way starts, prints its greeting and exits in a millisecond, with
 // nothing on screen and nothing in a log. It cost six attempts to find once.
+//
+// ⛔ THE FIRST CALL MUST BE ON THE PROCESS MAIN OS THREAD. +[NSApplication
+// sharedApplication] creates the application and binds it to the thread that
+// asks, and a Go goroutine is on the main thread only by luck -- runtime.
+// LockOSThread pins the CURRENT thread, not that one. Get this wrong and
+// nothing complains: the application is returned, messages to it work, and then
+// the MAIN thread cannot take an event. -[NSApplication
+// nextEventMatchingMask:untilDate:inMode:dequeue:] dies with
+//
+//	SIGTRAP: trace trap
+//	signal arrived during cgo execution
+//
+// at a program counter inside AppKit, with nothing of this package and nothing
+// of the offending call on the stack -- the same shape of failure as draining
+// an autorelease pool on the wrong thread, above, and found the same way.
+//
+// Measured in this package's tests on 2026-10-11, where a test that called
+// App() from its own goroutine made a LATER test trap in an event wait, and
+// creating the application on the main thread first fixed it with every other
+// call left where it was. So only the first call is bound by this: once the
+// application exists, messaging it from another goroutine is fine.
+//
+// [RunApp] and [RunAppLoop] must be on that thread anyway, so a program that
+// starts with either is already right. One that sets a dock icon from a worker
+// before anything else is not.
 func App() ID {
 	appKitOnce.Do(func() { _ = Load(AppKit) })
 	return ClassID("NSApplication").Send(Sel("sharedApplication"))
