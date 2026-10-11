@@ -4,40 +4,115 @@ package objc
 
 import (
 	"errors"
-	"runtime"
 	"testing"
 	"time"
 )
 
 // TestRunAppLoopStopsBeforeItWaits: a caller that already wants to stop must
 // not be made to wait for an event first. That is the ordinary shape of a
-// program told to quit while it was still starting up, and it is the half of
-// this loop a test in this package can actually reach.
+// program told to quit while it was still starting up.
 //
-// THE OTHER HALF IS NOT TESTED HERE, and pretending otherwise would be worse
-// than saying so. Being woken out of the wait is what makes this loop worth
-// having, and the wake-up goes to the MAIN thread's run loop: `go test` runs
-// every test on a goroutine of its own, so a test can lock itself to a thread
-// but never to that one. A test written against it hung for ten minutes, which
-// is exactly right -- it was waiting on a loop nothing could reach.
-//
-// It is verified in the program that needed it instead: a menu-bar desk that
-// enters this loop while it waits for a headset, finds one, and gets its thread
-// back with nobody at the machine.
+// ⛔ THIS COMMENT USED TO SAY THE OTHER HALF COULD NOT BE TESTED HERE, on the
+// grounds that `go test` runs every test on a goroutine of its own, so a test
+// "can lock itself to a thread but never to that one". Measured on 2026-10-11,
+// that is wrong in one word: not NEVER, but not RELIABLY -- a test goroutine
+// lands on the main thread often, which is worse than never, because it makes a
+// fixture that cannot work pass most of the time. It cost a CI red in
+// stopapp_darwin_test.go, and [mainThread] now reaches that thread on purpose.
+// The other half is [TestRunAppLoopStopsWhileItIsWaiting], below.
 func TestRunAppLoopStopsBeforeItWaits(t *testing.T) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
+	// ⛔ THIS USED TO RUN THE LOOP ON A GOROUTINE OF ITS OWN, which breaks the
+	// precondition RunAppLoop states in its own documentation -- the process
+	// main OS thread -- and it got away with it because a stop that answers at
+	// once returns before any event is asked for. What it did not get away with
+	// is leaving AppKit behind: -setActivationPolicy: and -finishLaunching ran
+	// on a thread that was not the main one, and the NEXT test to ask the main
+	// thread for an event died in -nextEventMatchingMask: with
+	//
+	//	SIGTRAP: trace trap ... signal arrived during cgo execution
+	//
+	// measured here on 2026-10-11. Alone, each test passed. A test that breaks
+	// its subject's documented precondition can poison the process for every
+	// test after it, and the one that fails is not the one at fault.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		RunAppLoop(1, func() bool { return true })
+		onMainThread(func() { RunAppLoop(1, func() bool { return true }) })
 	}()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
+		// The loop is on the main thread, which is also the thread serving
+		// mainThread, so this says the suite is wedged as well as failing.
 		t.Fatal("a loop told to stop at once did not return")
 	}
+}
+
+// TestRunAppLoopStopsWhileItIsWaiting is the half this file called untestable,
+// and it is the half the loop exists for: a program told to stop while it sits
+// in -nextEventMatchingMask:untilDate:inMode:dequeue: with NOBODY AT THE
+// MACHINE must get its thread back anyway.
+//
+// -[NSApplication run] does not, which is why this loop was written: its stop:
+// flag is read after an event is processed, and no event is coming. What makes
+// this one different is that the wait is BOUNDED by loopWaitSeconds, so the
+// wait expires on its own and the question gets asked again.
+//
+// That is what the count asserts, and it is the assertion that matters. A test
+// that only checked the loop returned would pass against a loop that asked
+// once and never waited at all -- which is TestRunAppLoopStopsBeforeItWaits,
+// already covered above. Being asked AGAIN, with no event sent and no input
+// device touched, is the bounded wait working.
+//
+// The stop function carries its own deadline rather than reading a flag the
+// test sets later: this runs on the main thread, which is also the thread
+// serving [mainThread], so a loop that failed to stop would hang the whole
+// suite with no test timeout able to reach it. A deadline inside the loop ends
+// it whatever happens.
+func TestRunAppLoopStopsWhileItIsWaiting(t *testing.T) {
+	const waiting = 300 * time.Millisecond // six turns of loopWaitSeconds
+
+	var (
+		asked    int
+		took     time.Duration
+		onWoken  bool
+		whichErr error
+	)
+	onMainThread(func() {
+		onWoken, whichErr = theWokenRunLoopIsThisThreads()
+		if whichErr != nil || !onWoken {
+			return
+		}
+		// Accessory: a menu-bar policy, so this does not take over the screen
+		// of whoever is running the suite.
+		deadline := time.Now().Add(waiting)
+		start := time.Now()
+		RunAppLoop(1, func() bool {
+			asked++
+			return time.Now().After(deadline)
+		})
+		took = time.Since(start)
+	})
+
+	if whichErr != nil {
+		t.Fatalf("asking which run loop this is: %v", whichErr)
+	}
+	if !onWoken {
+		t.Fatal("the main-thread queue did not reach the main thread, and RunAppLoop must run there")
+	}
+	if took < waiting {
+		t.Errorf("the loop returned after %v, before its own deadline at %v; it cannot have waited", took, waiting)
+	}
+	// Generous: the point is that it came back at all, not when.
+	if took > 5*time.Second {
+		t.Errorf("the loop ran for %v; a stop decided mid-wait did not get the thread back", took)
+	}
+	// Six turns are expected; three is enough to say it was asked again after
+	// a wait expired rather than only on the way in.
+	if asked < 3 {
+		t.Errorf("the stop function was asked %d times in %v; the wait is not bounded, so the question is only asked when an event arrives", asked, took)
+	}
+	t.Logf("asked %d times in %v, with no event sent", asked, took)
 }
 
 // TestWaitUntilBuildsARealDate checks the one call that needed a bridge of its
