@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/go-macos/objc/actions/workflows/ci.yml/badge.svg)](https://github.com/go-macos/objc/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/go-macos/objc.svg)](https://pkg.go.dev/github.com/go-macos/objc)
-[![Go 1.26.4](https://img.shields.io/badge/go-1.26.4-00ADD8)](https://go.dev/dl/)
+[![Go 1.27.1](https://img.shields.io/badge/go-1.27.1-00ADD8)](https://go.dev/dl/)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 A pure-Go (**CGO_ENABLED=0**) bridge to the macOS Objective-C runtime, reached
@@ -22,9 +22,12 @@ bridging, framework `dlopen`, autorelease-pool handling and run loops.
 | Runtime classes | `RegisterClass`, `RegisterClassWithProtocols`, `GetProtocol`, `MethodDef` |
 | Strings | `NSString`, `GoString` |
 | Objects / dictionaries | `Stringify`, `DictToMap`, `MapToDict` |
-| Frameworks | `Load` + `Foundation` / `AppKit` / `WebKit` / `CoreFoundation` / `Security` / `LibSystem` |
+| Geometry | `NSPoint`, `NSSize`, `NSRect` |
+| Frameworks | `Load`, `Open` + `Foundation` / `AppKit` / `WebKit` / `CoreFoundation` / `Security` / `LibSystem` |
 | Scopes | `AutoreleasePool` |
-| Run loops | `App`, `RunApp`, `Run(ctx, class, setup)` + `Runner` |
+| Application | `App`, `RunApp`, `SetApplicationIconImage` |
+| Leaving a loop | `RunAppLoop(policy, stop)`, `StopApp`, `WakeMainRunLoop` |
+| Run loops | `Run(ctx, class, setup)` + `Runner`, `PumpRunLoop` |
 | Main-thread hop | `DispatchMain` (libdispatch `dispatch_async` onto the main queue) |
 | Blocks | `Block`, `NewBlock`, `Block.Release`, `Block.Copy` |
 | Validation | `ValidateName` |
@@ -60,6 +63,39 @@ block := objc.NewBlock(func(b objc.Block, content objc.ID, err objc.ID) {
 objc.ClassID("SCShareableContent").
     Send(objc.Sel("getShareableContentWithCompletionHandler:"), block)
 ```
+
+## Threads
+
+AppKit's rules about threads are not advice, and getting them wrong here does
+not produce an error — it produces a trap inside AppKit with nothing of your
+program on the stack. Two of them are worth knowing before you write anything
+against this package.
+
+**`App()`'s first call binds the application to the thread that makes it.**
+`+[NSApplication sharedApplication]` creates the shared application and ties it
+to whoever asks first. Ask from a goroutine that is not on the process main OS
+thread and everything appears to work — the application is returned, messages to
+it are answered — until the **main** thread tries to take an event, which dies
+with `SIGTRAP` inside `-nextEventMatchingMask:`. Only the *first* call is bound
+by this: once the application exists, messaging it from another goroutine is
+fine. `RunApp` and `RunAppLoop` must be on that thread anyway, so a program that
+starts with either is already right.
+
+**`runtime.LockOSThread()` pins the current thread, not the main one.** It is
+the obvious thing to reach for and it does not get you to the main thread; a
+goroutine other than the one running `main()` is on that thread only by luck.
+Measured in this package's own tests: a locked test goroutine lands there on
+most runs and not all of them, which is worse than never — it makes a fixture
+that cannot work pass most of the time, and it cost one CI red that took a day
+to read. `WakeMainRunLoop` stops the **main** thread's loop while `PumpRunLoop`
+runs the **current** thread's, so if you are not on that thread the two are
+different loops.
+
+If you need the main thread from somewhere else, the honest ways are
+`DispatchMain` (which needs the main thread to be running a loop, so it is for a
+program, not a test) or, in a test, a `TestMain` that keeps the main goroutine
+locked and serves a channel — see `mainthread_darwin_test.go`, which also
+asserts that the channel really reaches that thread rather than assuming it.
 
 ## Design
 
