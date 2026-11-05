@@ -90,8 +90,10 @@ func RegisterClassWithProtocols(name string, super Class, protocols []*Protocol,
 func AutoreleasePool(fn func()) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	pool := ClassID("NSAutoreleasePool").Send(Sel("alloc")).Send(Sel("init"))
-	defer pool.Send(Sel("drain"))
+	// Msg0, not Send: a pool wraps every GPU frame, so its three messages are
+	// on the hot path.
+	pool := ID(Msg0(ID(Msg0(ClassID("NSAutoreleasePool"), Sel("alloc"))), Sel("init")))
+	defer Msg0(pool, Sel("drain"))
 	fn()
 }
 

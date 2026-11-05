@@ -19,6 +19,7 @@ bridging, framework `dlopen`, autorelease-pool handling and run loops.
 | --- | --- |
 | Selector / class lookup (cached) | `Sel`, `RegisterName`, `GetClass`, `ClassID` |
 | Messaging | `ID.Send`, generic `Send[T]` (scalars, `CGFloat`, structs) |
+| Hot-path messaging | `Msg0`, `Msg1`, `Msg2`, `Msg3` (integer and pointer arguments, integer result) |
 | Runtime classes | `RegisterClass`, `RegisterClassWithProtocols`, `GetProtocol`, `MethodDef` |
 | Strings | `NSString`, `GoString` |
 | Objects / dictionaries | `Stringify`, `DictToMap`, `MapToDict` |
@@ -46,6 +47,18 @@ cls, _ := objc.RegisterClass("MyTarget", objc.GetClass("NSObject"),
             // handle sender
         }},
     })
+```
+
+`ID.Send` takes its arguments as `any` and calls `objc_msgSend` through
+reflection: 5 allocations with no argument, 7 with one. For a message sent
+every frame, `Msg0` to `Msg3` go straight to `purego.SyscallN` and cost 1.
+They take integer or pointer arguments only (a pointer written as
+`uintptr(unsafe.Pointer(p))` in the call) and return an integer; anything with
+a float or a struct still goes through `Send`. `AutoreleasePool` uses them.
+
+```go
+n := objc.Msg0(s, objc.Sel("length"))
+objc.Msg3(enc, objc.Sel("setBuffer:offset:atIndex:"), buf, 0, 2)
 ```
 
 Asynchronous Cocoa APIs take a **completion handler block**. The Go function's

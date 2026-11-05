@@ -43,6 +43,18 @@ func Send[T any](id ID, sel SEL, args ...any) T {
 	return zero
 }
 
+// Msg0 reports 0 on non-darwin platforms.
+func Msg0(id ID, sel SEL) uintptr { return 0 }
+
+// Msg1 reports 0 on non-darwin platforms.
+func Msg1(id ID, sel SEL, a uintptr) uintptr { return 0 }
+
+// Msg2 reports 0 on non-darwin platforms.
+func Msg2(id ID, sel SEL, a, b uintptr) uintptr { return 0 }
+
+// Msg3 reports 0 on non-darwin platforms.
+func Msg3(id ID, sel SEL, a, b, c uintptr) uintptr { return 0 }
+
 // NSString reports the zero [ID] on non-darwin platforms.
 func NSString(s string) ID { return 0 }
 
