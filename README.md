@@ -29,6 +29,7 @@ bridging, framework `dlopen`, autorelease-pool handling and run loops.
 | Application | `App`, `RunApp`, `SetApplicationIconImage` |
 | Leaving a loop | `RunAppLoop(policy, stop)`, `StopApp`, `WakeMainRunLoop` |
 | Run loops | `Run(ctx, class, setup)` + `Runner`, `PumpRunLoop` |
+| Notifications | `Observe(ctx, center, names...)` (default, distributed or workspace center), `Post`, `RunMainLoop(ctx)`. Distributed and workspace notifications (`com.apple.screenIsLocked`, `NSWorkspaceWillSleepNotification`) are delivered on the **main thread's** run loop only: lock it in an `init` and run `RunMainLoop` there |
 | Main-thread hop | `DispatchMain` (libdispatch `dispatch_async` onto the main queue) |
 | Blocks | `Block`, `NewBlock`, `Block.Release`, `Block.Copy` |
 | Validation | `ValidateName` |
