@@ -104,7 +104,14 @@ func TestObserveDefaultCenterDropsWhenReaderIsBehind(t *testing.T) {
 	// a block that arrives after the close is ignored, not a panic
 	s := &sink{ch: make(chan string, 1)}
 	s.close()
-	s.put("late")
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("put after close panicked: %v", r)
+			}
+		}()
+		s.put("late")
+	}()
 }
 
 func TestObserveWorkspaceCenterRegisters(t *testing.T) {
@@ -119,7 +126,11 @@ func TestObserveWorkspaceCenterRegisters(t *testing.T) {
 }
 
 func TestRunMainLoopRefusesAnotherThread(t *testing.T) {
-	if err := RunMainLoop(context.Background()); !errors.Is(err, ErrNotMainThread) {
+	// An already-ended context: were the refusal missing, the loop would return
+	// at once with no error instead of running for ever.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := RunMainLoop(ctx); !errors.Is(err, ErrNotMainThread) {
 		t.Fatalf("RunMainLoop off the main thread = %v, want ErrNotMainThread", err)
 	}
 }
